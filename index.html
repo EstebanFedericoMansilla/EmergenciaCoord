@@ -769,87 +769,186 @@
     const d = normalizeDigits(numero);
     if (!d) { alert('Número inválido para WhatsApp.'); return; }
 
-    if (!navigator.geolocation) {
-      // No soportado
-      const urlNoGeo = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
-      window.open(urlNoGeo, '_blank');
-      return;
+    // Intentar obtener ubicación si está disponible
+    const canGeo = !!navigator.geolocation;
+    const res = canGeo ? await getLocationWithTimeout(10000) : { ok: false, reason: 'unsupported' };
+
+    // Contexto que pasaremos al modal
+    const existingMatch = mensaje.match(/https?:\/\/www\.google\.com\/maps\?q=[-\d.,]+/i);
+    const ctx = {
+      numero: d,
+      mensajeOriginal: mensaje,
+      existingLink: existingMatch ? existingMatch[0] : null,
+      detected: res.ok ? { lat: res.latitude, lon: res.longitude, accuracy: res.accuracy } : null,
+      error: res.ok ? null : { reason: res.reason, message: res.message }
+    };
+
+    openUbicacionModal(ctx);
+  }
+
+  // Modal y manejo visual de la ubicación
+  let ubicacionModalMap = null;
+  let ubicacionModalMarker = null;
+  let modalCtx = null;
+
+  function openUbicacionModal(ctx) {
+    modalCtx = ctx;
+    // Crear modal DOM si no existe
+    let modal = document.getElementById('ubicacionModal');
+    if (!modal) {
+      const html = `
+        <div id="ubicacionModal" class="modal-overlay" style="display:none;">
+          <div class="modal-content">
+            <h3 id="ubicacionModalTitle">Confirmar ubicación</h3>
+            <p id="ubicacionModalDesc" class="small-note"></p>
+            <div id="ubicacionMap" style="height:220px; margin-top:0.5rem;"></div>
+            <div id="ubicacionCoords" class="small-note mt-2"></div>
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.75rem;">
+              <button id="modalReplaceBtn" class="utility-btn">Reemplazar ubicación en mensaje</button>
+              <button id="modalAppendBtn" class="utility-btn">Añadir ubicación al final</button>
+              <button id="modalManualBtn" class="utility-btn">Ingresar coordenadas manuales</button>
+              <button id="modalRetryBtn" class="utility-btn">Reintentar obtener ubicación</button>
+              <button id="modalSendNoBtn" class="utility-btn">Enviar sin ubicación</button>
+              <button id="modalCloseBtn" class="utility-btn">Cerrar</button>
+            </div>
+          </div>
+        </div>`;
+      const div = document.createElement('div'); div.innerHTML = html; document.body.appendChild(div.firstElementChild);
+      modal = document.getElementById('ubicacionModal');
+
+      // Wire up buttons
+      document.getElementById('modalReplaceBtn').addEventListener('click', modalReplace);
+      document.getElementById('modalAppendBtn').addEventListener('click', modalAppend);
+      document.getElementById('modalManualBtn').addEventListener('click', modalManual);
+      document.getElementById('modalRetryBtn').addEventListener('click', modalRetry);
+      document.getElementById('modalSendNoBtn').addEventListener('click', modalSendNo);
+      document.getElementById('modalCloseBtn').addEventListener('click', closeUbicacionModal);
     }
 
-    // Intento de obtener ubicación
+    // Populate modal content
+    const title = document.getElementById('ubicacionModalTitle');
+    const desc = document.getElementById('ubicacionModalDesc');
+    const coordsEl = document.getElementById('ubicacionCoords');
+
+    if (ctx.detected) {
+      title.textContent = 'Ubicación detectada';
+      desc.textContent = `Precisión: ${ctx.detected.accuracy ? Math.round(ctx.detected.accuracy) + ' m' : 'desconocida'}`;
+      coordsEl.textContent = `${ctx.detected.lat}, ${ctx.detected.lon}`;
+    } else if (ctx.existingLink) {
+      title.textContent = 'Mensaje contiene ubicación';
+      desc.textContent = 'El mensaje ya tiene una ubicación. Puedes reemplazarla, añadir la detectada o enviar sin cambios.';
+      coordsEl.textContent = `Ubicación en mensaje: ${ctx.existingLink}`;
+    } else if (ctx.error) {
+      title.textContent = 'No se obtuvo ubicación';
+      desc.textContent = `Motivo: ${ctx.error.reason || 'desconocido'} ${ctx.error.message ? '- ' + ctx.error.message : ''}`;
+      coordsEl.textContent = '';
+    } else {
+      title.textContent = 'Ubicación no disponible';
+      desc.textContent = '';
+      coordsEl.textContent = '';
+    }
+
+    // Mostrar modal
+    modal.style.display = 'flex';
+
+    // Init map if have coordinates
+    const mapContainer = document.getElementById('ubicacionMap');
+    if (mapContainer) mapContainer.innerHTML = '';
+    if (ctx.detected) {
+      setTimeout(() => {
+        try {
+          ubicacionModalMap = L.map('ubicacionMap', { attributionControl: false, zoomControl: true }).setView([ctx.detected.lat, ctx.detected.lon], 16);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(ubicacionModalMap);
+          ubicacionModalMarker = L.marker([ctx.detected.lat, ctx.detected.lon]).addTo(ubicacionModalMap);
+        } catch (e) { console.warn('Error inicializando mapa modal', e); }
+      }, 200);
+    } else if (ctx.existingLink) {
+      // try to parse existing coords
+      const m = ctx.existingLink.match(/q=([-\d.]+),([-\d.]+)/);
+      if (m) {
+        const lat = parseFloat(m[1]), lon = parseFloat(m[2]);
+        setTimeout(() => {
+          try {
+            ubicacionModalMap = L.map('ubicacionMap', { attributionControl: false, zoomControl: true }).setView([lat, lon], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(ubicacionModalMap);
+            ubicacionModalMarker = L.marker([lat, lon]).addTo(ubicacionModalMap);
+          } catch (e) { console.warn('Error inicializando mapa modal', e); }
+        }, 200);
+      }
+    }
+  }
+
+  function closeUbicacionModal() {
+    const modal = document.getElementById('ubicacionModal');
+    if (modal) modal.style.display = 'none';
+    if (ubicacionModalMap) {
+      try { ubicacionModalMap.remove(); } catch (e) {}
+      ubicacionModalMap = null; ubicacionModalMarker = null;
+    }
+    modalCtx = null;
+  }
+
+  // Botones del modal
+  function modalReplace() {
+    if (!modalCtx) return;
+    const mapaLink = modalCtx.detected ? `https://www.google.com/maps?q=${modalCtx.detected.lat},${modalCtx.detected.lon}` : (modalCtx.existingLink || null);
+    if (!modalCtx.existingLink) {
+      // no hay para reemplazar, agregar en su lugar
+      modalAppend(); return;
+    }
+    const newMsg = modalCtx.mensajeOriginal.replace(modalCtx.existingLink, mapaLink);
+    const url = `https://wa.me/${modalCtx.numero}?text=${encodeURIComponent(newMsg)}`;
+    window.open(url, '_blank');
+    closeUbicacionModal();
+  }
+
+  function modalAppend() {
+    if (!modalCtx) return;
+    const mapaLink = modalCtx.detected ? `https://www.google.com/maps?q=${modalCtx.detected.lat},${modalCtx.detected.lon}` : (modalCtx.existingLink || null);
+    const newMsg = `${modalCtx.mensajeOriginal}\n\nVer en mapa: ${mapaLink}`;
+    const url = `https://wa.me/${modalCtx.numero}?text=${encodeURIComponent(newMsg)}`;
+    window.open(url, '_blank');
+    closeUbicacionModal();
+  }
+
+  function modalManual() {
+    if (!modalCtx) return;
+    const manual = prompt('Ingresa coordenadas en formato lat,lon (ej: -33.0548161,-65.6174943)');
+    if (!manual) return;
+    if (!/^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(manual.trim())) { alert('Formato inválido'); return; }
+    const mapaLink = `https://www.google.com/maps?q=${manual.trim()}`;
+    const newMsg = `${modalCtx.mensajeOriginal}\n\nVer en mapa: ${mapaLink}`;
+    const url = `https://wa.me/${modalCtx.numero}?text=${encodeURIComponent(newMsg)}`;
+    window.open(url, '_blank');
+    closeUbicacionModal();
+  }
+
+  async function modalRetry() {
+    if (!modalCtx) return;
+    const statusDesc = document.getElementById('ubicacionModalDesc'); if (statusDesc) statusDesc.textContent = 'Reintentando...';
     const res = await getLocationWithTimeout(10000);
     if (res.ok) {
-      const mapa = `https://www.google.com/maps?q=${res.latitude},${res.longitude}`;
-      // Si el mensaje ya contiene un enlace de google maps, preguntar qué hacer
-      const existing = mensaje.match(/https?:\/\/www\.google\.com\/maps\?q=[-\d.,]+/i);
-      if (existing) {
-        // Mostrar información de precisión
-        const prec = res.accuracy ? ` (precisión ~${Math.round(res.accuracy)} m)` : '';
-        const useNew = confirm(`Se detectó que el mensaje ya contiene una ubicación. Ubicación detectada: ${res.latitude}, ${res.longitude}${prec}.\n\n¿Deseas REEMPLAZAR la ubicación del mensaje por la detectada? (Aceptar = reemplazar, Cancelar = opciones)`);
-        if (useNew) {
-          const mensajeReplaced = mensaje.replace(existing[0], mapa);
-          const url = `https://wa.me/${d}?text=${encodeURIComponent(mensajeReplaced)}`;
-          window.open(url, '_blank');
-          return;
-        } else {
-          const append = confirm('¿Deseas AÑADIR además la ubicación detectada al final del mensaje? (Aceptar = añadir, Cancelar = mantener la existente)');
-          if (append) {
-            const mensajeAppended = `${mensaje}\n\nVer en mapa: ${mapa}`;
-            const url = `https://wa.me/${d}?text=${encodeURIComponent(mensajeAppended)}`;
-            window.open(url, '_blank');
-            return;
-          } else {
-            // Mantener la existente
-            const url = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
-            window.open(url, '_blank');
-            return;
-          }
-        }
-      }
-      // Si no contiene ubicación previa, simplemente agregarla
-      const mensajeConUbic = `${mensaje}\n\nVer en mapa: ${mapa}`;
-      const url = `https://wa.me/${d}?text=${encodeURIComponent(mensajeConUbic)}`;
-      window.open(url, '_blank');
-      return;
+      modalCtx.detected = { lat: res.latitude, lon: res.longitude, accuracy: res.accuracy };
+      // actualizar mapa y textos
+      const coordsEl = document.getElementById('ubicacionCoords'); if (coordsEl) coordsEl.textContent = `${res.latitude}, ${res.longitude}`;
+      if (ubicacionModalMap) { try { ubicacionModalMap.remove(); } catch(e) {} ubicacionModalMap = null; }
+      setTimeout(() => {
+        try {
+          ubicacionModalMap = L.map('ubicacionMap', { attributionControl: false, zoomControl: true }).setView([res.latitude, res.longitude], 16);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(ubicacionModalMap);
+          ubicacionModalMarker = L.marker([res.latitude, res.longitude]).addTo(ubicacionModalMap);
+        } catch(e){ console.warn(e); }
+      }, 200);
+    } else {
+      alert('No se pudo obtener ubicación en el reintento: ' + (res.reason || res.message || 'error'));
     }
+  }
 
-    // Si no se obtuvo ubicación, ofrecer reintento o entrada manual
-    let reasonText = res.reason || 'error';
-    if (res.message) reasonText += ': ' + res.message;
-    const choice = prompt(`No se pudo obtener la ubicación (${reasonText}). Escribe "R" para reintentar, "M" para ingresar coordenadas manuales (lat,lon) o deja vacío para enviar sin ubicación.`, '');
-    if (choice && choice.toUpperCase() === 'R') {
-      const res2 = await getLocationWithTimeout(8000);
-      if (res2.ok) {
-        const mapa2 = `https://www.google.com/maps?q=${res2.latitude},${res2.longitude}`;
-        const mensajeConUbic2 = `${mensaje}\n\nVer en mapa: ${mapa2}`;
-        const url2 = `https://wa.me/${d}?text=${encodeURIComponent(mensajeConUbic2)}`;
-        window.open(url2, '_blank');
-        return;
-      } else {
-        alert('No se obtuvo ubicación en el reintento. Se enviará sin ubicación.');
-        const url = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
-        window.open(url, '_blank');
-        return;
-      }
-    }
-    if (choice && choice.toUpperCase() === 'M') {
-      const manual = prompt('Ingresa coordenadas en formato lat,lon (ej: -33.0548161,-65.6174943)');
-      if (manual && /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(manual.trim())) {
-        const mapaM = `https://www.google.com/maps?q=${manual.trim()}`;
-        const mensajeM = `${mensaje}\n\nVer en mapa: ${mapaM}`;
-        const urlM = `https://wa.me/${d}?text=${encodeURIComponent(mensajeM)}`;
-        window.open(urlM, '_blank');
-        return;
-      } else {
-        alert('Coordenadas inválidas. Se enviará sin ubicación.');
-        const url = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
-        window.open(url, '_blank');
-        return;
-      }
-    }
-    // Enviar sin ubicación
-    const urlDefault = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
-    window.open(urlDefault, '_blank');
+  function modalSendNo() {
+    if (!modalCtx) return;
+    const url = `https://wa.me/${modalCtx.numero}?text=${encodeURIComponent(modalCtx.mensajeOriginal)}`;
+    window.open(url, '_blank');
+    closeUbicacionModal();
   }
 
   // Inicializar
