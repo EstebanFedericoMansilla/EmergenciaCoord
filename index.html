@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EmergenciaCoord - Coordinación de Emergencias</title>
+    <meta name="description" content="Plataforma para coordinar emergencias entre bomberos, policía y hospitales en Tilisarao, San Luis. Alertas rápidas y reuniones para servicios de emergencia.">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.2.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer"/>
+    <link href="https://unpkg.com/phosphor-icons@1.4.0/src/css/phosphor.min.css" rel="stylesheet">
+    <!-- Nuevos scripts para mapa y notificaciones -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js"></script>
+    <style>
+      body {
+        font-family: 'Arial', sans-serif;
+        background-color: #111827;
+        color: #f3f4f6;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        padding: 20px;
+      }
+      .milton-section {
+        background-color: rgba(31, 41, 55, 0.9);
+        backdrop-filter: blur(10px);
+        border: 1px solid #374151;
+      }
+      .chip-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .chip {
+        background: #334155;
+        color: #e5e7eb;
+        border: 1px solid #475569;
+        padding: 0.35rem 0.65rem;
+        border-radius: 9999px;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background 0.2s, transform 0.05s ease-in-out;
+        user-select: none;
+      }
+      .chip:hover { background: #475569; }
+      .chip:active { transform: scale(0.98); }
+      .chip.active { background: #0ea5e9; border-color: #0284c7; color: #0b1324; }
+      .small-note { color: #9ca3af; font-size: 0.85rem; }
+      .container { width: 100%; max-width: 800px; margin: auto; }
+      /* Hero / Landing */
+      .hero {
+        background: radial-gradient(1200px 600px at 20% -10%, rgba(59,130,246,0.15), transparent),
+                    radial-gradient(1000px 600px at 120% 10%, rgba(16,185,129,0.08), transparent);
+        border: 1px solid #1f2937;
+      }
+      .hero-title {
+        letter-spacing: 0.3px;
+        background: linear-gradient(90deg, #93c5fd 0%, #a7f3d0 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .tag {
+        background: #0f172a;
+        border: 1px solid #334155;
+        color: #cbd5e1;
+        padding: 0.25rem 0.5rem;
+        border-radius: 9999px;
+        font-size: 0.8rem;
+      }
+      .section-title { color: #e5e7eb; }
+      .emergency-section {
+        background-color: rgba(139, 92, 92, 0.8);
+        backdrop-filter: blur(10px);
+        border: 1px solid #b91c1c;
+      }
+      .emergency-title {
+        color: #fca5a5;
+        text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+      }
+      .emergency-message {
+        color: #f87171;
+      }
+      .input-field {
+        background-color: #374151;
+        border: 1px solid #4b5563;
+        color: #f9fafb;
+      }
+      .input-field:focus {
+        border-color: #6b7280;
+        box-shadow: 0 0 5px rgba(107, 114, 128, 0.3);
+      }
+      .add-button {
+        background-color: #4ade80;
+        color: #064e3b;
+        transition: background-color 0.3s;
+      }
+      .add-button:hover {
+        background-color: #22c55e;
+      }
+      .remove-button {
+        color: #f472b6;
+        transition: color 0.3s;
+      }
+      .remove-button:hover {
+        color: #f9a8d4;
+      }
+      .emergency-button {
+        background-color: #dc2626;
+        color: #ffffff;
+        transition: background-color 0.3s, transform 0.2s;
+        transform-origin: center;
+      }
+      .emergency-button:hover {
+        background-color: #b91c1c;
+      }
+      .emergency-button:active {
+        transform: scale(0.95);
+      }
+      .asterisk-note {
+        color: #fda4af;
+        font-size: 0.8em;
+      }
+      .utility-buttons {
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+      }
+      .utility-btn {
+        background: #334155;
+        color: #f1f5f9;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        font-size: 0.95rem;
+        transition: background 0.2s;
+        text-decoration: none;
+        display: inline-block;
+        min-width: fit-content;
+      }
+      .utility-btn:hover {
+        background: #64748b;
+      }
+      input[type="file"] {
+        display: none;
+      }
+      label[for="importFile"] {
+        background: #334155;
+        color: #f1f5f9;
+        border-radius: 0.5rem;
+        padding: 0.5rem 1rem;
+        cursor: pointer;
+        font-size: 0.95rem;
+        transition: background 0.2s;
+        margin-right: 0.5rem;
+      }
+      label[for="importFile"]:hover {
+        background: #64748b;
+      }
+      /* Estilos para modales (progreso e instrucciones) */
+      .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+      }
+      .modal-content {
+        background-color: #1f2937;
+        border-radius: 0.5rem;
+        padding: 1.5rem;
+        max-width: 90%;
+        width: 400px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+      .modal-content ol {
+        list-style-type: decimal;
+        padding-left: 1.5rem;
+      }
+      .modal-content ol li {
+        margin-bottom: 0.5rem;
+      }
+      .progress-bar {
+        width: 100%;
+        height: 10px;
+        background-color: #374151;
+        border-radius: 5px;
+        margin: 1rem 0;
+        overflow: hidden;
+      }
+      .progress-fill {
+        height: 100%;
+        background-color: #10b981;
+        width: 0%;
+        transition: width 0.3s ease;
+      }
+      .modal-buttons {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 1rem;
+      }
+      /* Estilos para la configuración de API */
+      .api-config {
+        background-color: #1f2937;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-bottom: 1rem;
+      }
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #111827;
+            color: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        /* Sección de contacto para Milton */
+        .milton-section {
+            background-color: rgba(31, 41, 55, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid #374151;
+        }
+        .chip-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .chip {
+            background: #334155;
+            color: #e5e7eb;
+            border: 1px solid #475569;
+            padding: 0.35rem 0.65rem;
+            border-radius: 9999px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.2s, transform 0.05s ease-in-out;
+            user-select: none;
+        }
+        .chip:hover { background: #475569; }
+        .chip:active { transform: scale(0.98); }
+        .chip.active { background: #0ea5e9; border-color: #0284c7; color: #0b1324; }
+        .small-note { color: #9ca3af; font-size: 0.85rem; }
+        .container { width: 100%; max-width: 800px; margin: auto; }
+        /* Hero / Landing */
+        .hero {
+            background: radial-gradient(1200px 600px at 20% -10%, rgba(59,130,246,0.15), transparent),
+                        radial-gradient(1000px 600px at 120% 10%, rgba(16,185,129,0.08), transparent);
+            border: 1px solid #1f2937;
+        }
+        .hero-title {
+            letter-spacing: 0.3px;
+            background: linear-gradient(90deg, #93c5fd 0%, #a7f3d0 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .tag {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: #cbd5e1;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.8rem;
+        }
+        .section-title { color: #e5e7eb; }
+        .emergency-section {
+            background-color: rgba(139, 92, 92, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid #b91c1c;
+        }
+        .emergency-title {
+            color: #fca5a5;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+        .emergency-message {
+            color: #f87171;
+        }
+        .input-field {
+            background-color: #374151;
+            border: 1px solid #4b5563;
+            color: #f9fafb;
+        }
+        .input-field:focus {
+            border-color: #6b7280;
+            box-shadow: 0 0 5px rgba(107, 114, 128, 0.3);
+        }
+        .add-button {
+            background-color: #4ade80;
+            color: #064e3b;
+            transition: background-color 0.3s;
+        }
+        .add-button:hover {
+            background-color: #22c55e;
+        }
+        .remove-button {
+            color: #f472b6;
+            transition: color 0.3s;
+        }
+        .remove-button:hover {
+            color: #f9a8d4;
+        }
+        .emergency-button {
+            background-color: #dc2626;
+            color: #ffffff;
+            transition: background-color 0.3s, transform 0.2s;
+            transform-origin: center;
+        }
+        .emergency-button:hover {
+            background-color: #b91c1c;
+        }
+        .emergency-button:active {
+            transform: scale(0.95);
+        }
+        .asterisk-note {
+            color: #fda4af;
+            font-size: 0.8em;
+        }
+        .utility-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .utility-btn {
+            background: #334155;
+            color: #f1f5f9;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: background 0.2s;
+        }
+        .utility-btn:hover {
+            background: #64748b;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        label[for="importFile"] {
+            background: #334155;
+            color: #f1f5f9;
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            font-size: 0.95rem;
+            transition: background 0.2s;
+            margin-right: 0.5rem;
+        }
+        label[for="importFile"]:hover {
+            background: #64748b;
+        }
+        /* Estilos para modales (progreso e instrucciones) */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background-color: #1f2937;
+            border-radius: 0.5rem;
+            padding: 1.5rem;
+            max-width: 90%;
+            width: 400px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .modal-content ol {
+            list-style-type: decimal;
+            padding-left: 1.5rem;
+        }
+        .modal-content ol li {
+            margin-bottom: 0.5rem;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            background-color: #374151;
+            border-radius: 5px;
+            margin: 1rem 0;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #10b981;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .modal-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 1rem;
+        }
+        /* Estilos para la configuración de API */
+        .api-config {
+            background-color: #1f2937;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border: 1px solid #374151;
+        }
+        .api-config h3 {
+            margin-top: 0;
+            color: #d1d5db;
+        }
+        .toggle-config {
+            font-size: 0.9rem;
+            color: #9ca3af;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+        .toggle-config:hover {
+            color: #d1d5db;
+        }
+        .toggle-config i {
+            margin-right: 0.5rem;
+        }
+        /* Mejoras para dispositivos móviles */
+        @media (max-width: 640px) {
+            .utility-buttons {
+                flex-wrap: wrap;
+            }
+            .utility-btn, label[for="importFile"] {
+                width: 100%;
+                margin-bottom: 0.5rem;
+                text-align: center;
+            }
+            .modal-content {
+                width: 95%;
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            .modal-buttons {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+            .modal-buttons button {
+                width: 100%;
+            }
+        }
+        /* --- Personalización Lavadero de autos --- */
+        .hero { position: relative; overflow: hidden; }
+        .hero::before {
+            content: "";
+            position: absolute; inset: 0;
+            background-image: url('https://images.unsplash.com/photo-1520340356584-8f7f4f4b3a52?q=80&w=1600&auto=format&fit=crop');
+            background-size: cover; background-position: center; opacity: 0.22; filter: saturate(1.05) contrast(1.02);
+        }
+        .hero > * { position: relative; z-index: 1; }
+        .services .service-card {
+            background: rgba(31,41,55,0.85);
+            border: 1px solid #374151;
+            border-radius: 0.75rem;
+            padding: 0.9rem;
+            display: flex; flex-direction: column; align-items: flex-start;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.25);
+        }
+        .services .service-card:hover { background: rgba(31,41,55,0.95); }
+        header {
+            backdrop-filter: blur(6px);
+        }
+        footer.site-footer {
+            background: rgba(17,24,39,0.75);
+            border: 1px solid #1f2937;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            color: #9ca3af;
+        }
+        /* Scroll suave */
+        html { scroll-behavior: smooth; }
+        /* Mejoras responsivas */
+        @media (max-width: 640px) {
+            .hero { padding: 1rem !important; }
+            .hero-title { font-size: 1.875rem !important; }
+            .services { grid-template-columns: 1fr 1fr !important; gap: 0.5rem !important; }
+            .service-card { padding: 0.6rem !important; }
+            header { padding: 0.75rem !important; }
+            .container { padding: 10px !important; }
+            .floating-btn { display: block !important; }
+        }
+        /* Botón flotante para móviles */
+        .floating-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: none;
+            background: #2563eb;
+            color: white;
+            border-radius: 50px;
+            padding: 12px 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            text-decoration: none;
+            font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        /* Mejoras para desktop */
+        @media (min-width: 641px) {
+            .utility-btn {
+                padding: 0.6rem 1.2rem !important;
+                font-size: 0.95rem !important;
+                white-space: nowrap;
+            }
+            header .utility-btn {
+                padding: 0.5rem 1rem !important;
+                font-size: 0.9rem !important;
+            }
+        }
+    </style>
+</head>
+<body>
+<header class="bg-gray-900 p-4 text-center">
+  <h1 class="text-2xl font-bold text-gray-100">EmergenciaCoord</h1>
+  <p class="text-gray-400">Coordinación Rápida para Servicios de Emergencia</p>
+</header>
+
+<!-- Dashboard Principal -->
+<main class="container mx-auto p-4">
+  <!-- Mapa Interactivo -->
+  <div class="milton-section p-4 mb-6">
+    <h2 class="text-xl mb-2"><i class="ph-map-pin"></i> Mapa de Emergencias</h2>
+    <div id="map" style="height: 300px;"></div>
+  </div>
+
+  <!-- Panel de Alertas -->
+  <div class="milton-section p-4 mb-6">
+    <h2 class="text-xl mb-2"><i class="ph-bell"></i> Alertas Recientes</h2>
+    <div class="chip-group">
+      <div class="chip">Incendio en Calle Principal - Bomberos requeridos</div>
+      <div class="chip">Accidente vehicular - Policía en ruta</div>
+    </div>
+    <button class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 mt-2 rounded" onclick="enviarAlerta()">Enviar Nueva Alerta</button>
+  </div>
+
+  <!-- Formulario de Emergencia -->
+  <div class="milton-section p-4 mb-6">
+    <h2 class="text-xl mb-2"><i class="ph-plus-circle"></i> Reportar Emergencia</h2>
+    <form id="formEmergencia">
+      <input type="text" placeholder="Tipo de Emergencia" class="w-full p-2 mb-2 bg-gray-700 text-gray-100 rounded" required>
+      <input type="text" placeholder="Ubicación" class="w-full p-2 mb-2 bg-gray-700 text-gray-100 rounded" required>
+      <textarea placeholder="Descripción" class="w-full p-2 mb-2 bg-gray-700 text-gray-100 rounded" required></textarea>
+      <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Enviar y Notificar</button>
+    </form>
+  </div>
+
+  <!-- Panel de Gestionar Contactos -->
+  <div class="milton-section p-4 mb-6">
+    <h2 class="text-xl mb-2"><i class="ph-address-book"></i> Gestionar Contactos</h2>
+    <form id="formContacto">
+      <select id="tipoEquipo" class="w-full p-2 mb-2 bg-gray-700 text-gray-100 rounded">
+        <option value="bomberos">Bomberos</option>
+        <option value="policia">Policía</option>
+        <option value="hospitales">Hospitales</option>
+      </select>
+      <input type="text" id="nombreContacto" placeholder="Nombre del Contacto" class="w-full p-2 mb-2 bg-gray-700 text-gray-100 rounded" required>
+      <input type="text" id="telefonoContacto" placeholder="Número (ej: 5492664024390)" class="w-full p-2 mb-2 bg-gray-700 text-gray-100 rounded" required>
+      <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded">Agregar Contacto</button>
+    </form>
+    <div class="mt-4">
+      <h3 class="text-lg mb-2">Lista de Contactos</h3>
+      <div id="listaContactos" class="chip-group"></div>
+    </div>
+  </div>
+</main>
+
+<!-- Footer -->
+<footer class="bg-gray-900 p-4 text-center text-gray-400">
+  <p id="footerContactos">Contactos: Bomberos (266-1234567) | Policía (266-7654321)</p>
+  <button id="emergencyBtn" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 mt-2 rounded">Emergencia General</button>
+</footer>
+
+<!-- Script JavaScript (reutilizando lógica simple) -->
+<script>
+  // Variables para contactos (reutilizando lógica de proyectos previos)
+  let contactos = { bomberos: [], policia: [], hospitales: [] };
+  const CONTACTOS_KEY = 'emergenciaContactos';
+
+  // Cargar contactos desde localStorage
+  function cargarContactos() {
+    try {
+      const data = localStorage.getItem(CONTACTOS_KEY);
+      if (data) {
+        contactos = JSON.parse(data);
+      } else {
+        // Valores por defecto razonables si aún no se configuraron contactos
+        contactos = {
+          bomberos: [{ nombre: 'Bomberos', telefono: '2661234567' }],
+          policia: [{ nombre: 'Policía', telefono: '2667654321' }],
+          hospitales: []
+        };
+        guardarContactos();
+      }
+    } catch (e) {
+      contactos = { bomberos: [], policia: [], hospitales: [] };
+    }
+  }
+
+  // Guardar contactos en localStorage
+  function guardarContactos() {
+    try {
+      localStorage.setItem(CONTACTOS_KEY, JSON.stringify(contactos));
+    } catch (e) {
+      console.error('Error guardando contactos:', e);
+    }
+  }
+
+  // Renderizar lista de contactos con botones de editar y borrar
+  function renderizarContactos() {
+    const container = document.getElementById('listaContactos');
+    container.innerHTML = '';
+    Object.keys(contactos).forEach(tipo => {
+      contactos[tipo].forEach((contacto, index) => {
+        const contactoDiv = document.createElement('div');
+        contactoDiv.className = 'chip flex items-center justify-between';
+        contactoDiv.innerHTML = `
+          <span>${tipo.toUpperCase()}: ${contacto.nombre} (${contacto.telefono})</span>
+          <div class="flex gap-1 ml-2">
+            <button class="text-blue-400 hover:text-blue-600 text-xs" onclick="editarContacto('${tipo}', ${index})">Editar</button>
+            <button class="text-red-400 hover:text-red-600 text-xs" onclick="confirmarBorrarContacto('${tipo}', ${index})">Borrar</button>
+          </div>
+        `;
+        container.appendChild(contactoDiv);
+      });
+    });
+      actualizarFooterContactos();
+  }
+
+    // Actualiza el texto del footer con los números principales (primer contacto)
+    function actualizarFooterContactos() {
+      const el = document.getElementById('footerContactos');
+      if (!el) return;
+      const bom = getPrimaryNumber('bomberos') || 'sin número';
+      const pol = getPrimaryNumber('policia') || 'sin número';
+      el.textContent = `Contactos: Bomberos (${bom}) | Policía (${pol})`;
+    }
+
+  // Función para editar contacto (simulada, puedes expandirla)
+  function editarContacto(tipo, index) {
+    const contacto = contactos[tipo][index];
+    const nuevoNombre = prompt('Editar nombre:', contacto.nombre);
+    const nuevoTelefono = prompt('Editar teléfono:', contacto.telefono);
+    if (nuevoNombre && nuevoTelefono) {
+      contactos[tipo][index] = { nombre: nuevoNombre, telefono: nuevoTelefono };
+      guardarContactos();
+      renderizarContactos();
+    }
+  }
+
+  // Función para confirmar borrado
+  function confirmarBorrarContacto(tipo, index) {
+    if (confirm('¿Estás seguro de que quieres borrar este contacto?')) {
+      removerContacto(tipo, index);
+    }
+  }
+
+  // Agregar contacto
+  function agregarContacto(tipo, nombre, telefono) {
+    contactos[tipo].push({ nombre, telefono });
+    guardarContactos();
+    renderizarContactos();
+  }
+
+  // Remover contacto
+  function removerContacto(tipo, index) {
+    contactos[tipo].splice(index, 1);
+    guardarContactos();
+    renderizarContactos();
+  }
+
+  // Enviar alerta con WhatsApp a contactos relevantes
+  function enviarAlertaConWhatsApp() {
+    const tipoEmergencia = document.querySelector('#formEmergencia input[placeholder="Tipo de Emergencia"]').value.toLowerCase();
+    const ubicacion = document.querySelector('#formEmergencia input[placeholder="Ubicación"]').value;
+    const descripcion = document.querySelector('#formEmergencia textarea').value;
+
+    if (!tipoEmergencia || !ubicacion || !descripcion) {
+      alert('Completa todos los campos antes de enviar.');
+      return;
+    }
+
+    // Determinar equipo relevante basado en tipo de emergencia
+    let equipoRelevante = 'bomberos'; // Por defecto
+    if (tipoEmergencia.includes('accidente') || tipoEmergencia.includes('policia')) equipoRelevante = 'policia';
+    if (tipoEmergencia.includes('medico') || tipoEmergencia.includes('hospital')) equipoRelevante = 'hospitales';
+
+    const contactosEquipo = contactos[equipoRelevante];
+    if (contactosEquipo.length === 0) {
+      alert(`No hay contactos en ${equipoRelevante.toUpperCase()}. Agrega algunos primero.`);
+      return;
+    }
+
+    // Crear mensaje con enlace formateado para WhatsApp
+    const mensaje = `🚨 Emergencia: ${tipoEmergencia.toUpperCase()}\n\n📍 Ubicación: ${ubicacion}\n\nDescripción: ${descripcion}\n\n¡Reúnete inmediatamente!\n\nVer en mapa: ${ubicacion}`;
+
+    // Abrir WhatsApp para cada contacto incluyendo (si es posible) la ubicación actual
+    contactosEquipo.forEach(contacto => {
+      enviarWhatsappConUbicacion(contacto.telefono, mensaje);
+    });
+
+    // Simular envío y actualizar UI
+    const alertasContainer = document.querySelector('.chip-group');
+    const nuevaAlerta = document.createElement('div');
+    nuevaAlerta.className = 'chip active';
+    nuevaAlerta.textContent = `${tipoEmergencia} en ${ubicacion} - Enviada por WhatsApp`;
+    alertasContainer.appendChild(nuevaAlerta);
+
+    alert(`Alerta enviada por WhatsApp a ${contactosEquipo.length} contactos de ${equipoRelevante.toUpperCase()}.`);
+  }
+
+  // Intenta obtener geolocalización y abrir WhatsApp con el mensaje incluyendo la ubicación.
+  // Si no se puede obtener ubicación, abre WhatsApp sin ella.
+  // Helper: obtener ubicación con timeout y manejo de errores
+  function getLocationWithTimeout(timeoutMs = 10000) {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve({ ok: false, reason: 'unsupported' });
+        return;
+      }
+      let finished = false;
+      const opts = { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 };
+
+      const success = (pos) => {
+        if (finished) return;
+        finished = true;
+        const { latitude, longitude, accuracy } = pos.coords;
+        resolve({ ok: true, latitude, longitude, accuracy });
+      };
+
+      const failure = (err) => {
+        if (finished) return;
+        finished = true;
+        let reason = 'error';
+        if (err && err.code === 1) reason = 'permission_denied';
+        if (err && err.code === 2) reason = 'position_unavailable';
+        if (err && err.code === 3) reason = 'timeout';
+        resolve({ ok: false, reason, message: err && err.message });
+      };
+
+      navigator.geolocation.getCurrentPosition(success, failure, opts);
+
+      // Extra safety timeout
+      setTimeout(() => {
+        if (!finished) {
+          finished = true;
+          resolve({ ok: false, reason: 'timeout' });
+        }
+      }, timeoutMs + 300);
+    });
+  }
+
+  // Envía WhatsApp intentando adjuntar ubicación. Si no se puede, pregunta si enviar sin ubicación.
+  async function enviarWhatsappConUbicacion(numero, mensaje) {
+    const d = normalizeDigits(numero);
+    if (!d) { alert('Número inválido para WhatsApp.'); return; }
+
+    if (!navigator.geolocation) {
+      // No soportado
+      const urlNoGeo = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
+      window.open(urlNoGeo, '_blank');
+      return;
+    }
+
+    // Intento de obtener ubicación
+    const res = await getLocationWithTimeout(10000);
+    if (res.ok) {
+      const mapa = `https://www.google.com/maps?q=${res.latitude},${res.longitude}`;
+      // Si el mensaje ya contiene un enlace de google maps, preguntar qué hacer
+      const existing = mensaje.match(/https?:\/\/www\.google\.com\/maps\?q=[-\d.,]+/i);
+      if (existing) {
+        // Mostrar información de precisión
+        const prec = res.accuracy ? ` (precisión ~${Math.round(res.accuracy)} m)` : '';
+        const useNew = confirm(`Se detectó que el mensaje ya contiene una ubicación. Ubicación detectada: ${res.latitude}, ${res.longitude}${prec}.\n\n¿Deseas REEMPLAZAR la ubicación del mensaje por la detectada? (Aceptar = reemplazar, Cancelar = opciones)`);
+        if (useNew) {
+          const mensajeReplaced = mensaje.replace(existing[0], mapa);
+          const url = `https://wa.me/${d}?text=${encodeURIComponent(mensajeReplaced)}`;
+          window.open(url, '_blank');
+          return;
+        } else {
+          const append = confirm('¿Deseas AÑADIR además la ubicación detectada al final del mensaje? (Aceptar = añadir, Cancelar = mantener la existente)');
+          if (append) {
+            const mensajeAppended = `${mensaje}\n\nVer en mapa: ${mapa}`;
+            const url = `https://wa.me/${d}?text=${encodeURIComponent(mensajeAppended)}`;
+            window.open(url, '_blank');
+            return;
+          } else {
+            // Mantener la existente
+            const url = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
+            window.open(url, '_blank');
+            return;
+          }
+        }
+      }
+      // Si no contiene ubicación previa, simplemente agregarla
+      const mensajeConUbic = `${mensaje}\n\nVer en mapa: ${mapa}`;
+      const url = `https://wa.me/${d}?text=${encodeURIComponent(mensajeConUbic)}`;
+      window.open(url, '_blank');
+      return;
+    }
+
+    // Si no se obtuvo ubicación, ofrecer reintento o entrada manual
+    let reasonText = res.reason || 'error';
+    if (res.message) reasonText += ': ' + res.message;
+    const choice = prompt(`No se pudo obtener la ubicación (${reasonText}). Escribe "R" para reintentar, "M" para ingresar coordenadas manuales (lat,lon) o deja vacío para enviar sin ubicación.`, '');
+    if (choice && choice.toUpperCase() === 'R') {
+      const res2 = await getLocationWithTimeout(8000);
+      if (res2.ok) {
+        const mapa2 = `https://www.google.com/maps?q=${res2.latitude},${res2.longitude}`;
+        const mensajeConUbic2 = `${mensaje}\n\nVer en mapa: ${mapa2}`;
+        const url2 = `https://wa.me/${d}?text=${encodeURIComponent(mensajeConUbic2)}`;
+        window.open(url2, '_blank');
+        return;
+      } else {
+        alert('No se obtuvo ubicación en el reintento. Se enviará sin ubicación.');
+        const url = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
+        window.open(url, '_blank');
+        return;
+      }
+    }
+    if (choice && choice.toUpperCase() === 'M') {
+      const manual = prompt('Ingresa coordenadas en formato lat,lon (ej: -33.0548161,-65.6174943)');
+      if (manual && /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(manual.trim())) {
+        const mapaM = `https://www.google.com/maps?q=${manual.trim()}`;
+        const mensajeM = `${mensaje}\n\nVer en mapa: ${mapaM}`;
+        const urlM = `https://wa.me/${d}?text=${encodeURIComponent(mensajeM)}`;
+        window.open(urlM, '_blank');
+        return;
+      } else {
+        alert('Coordenadas inválidas. Se enviará sin ubicación.');
+        const url = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
+        window.open(url, '_blank');
+        return;
+      }
+    }
+    // Enviar sin ubicación
+    const urlDefault = `https://wa.me/${d}?text=${encodeURIComponent(mensaje)}`;
+    window.open(urlDefault, '_blank');
+  }
+
+  // Inicializar
+  cargarContactos();
+  renderizarContactos();
+
+  // Eventos para formularios
+  document.getElementById('formContacto').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const tipo = document.getElementById('tipoEquipo').value;
+    const nombre = document.getElementById('nombreContacto').value;
+    const telefono = document.getElementById('telefonoContacto').value;
+    if (nombre && telefono) {
+      agregarContacto(tipo, nombre, telefono);
+      document.getElementById('nombreContacto').value = '';
+      document.getElementById('telefonoContacto').value = '';
+    }
+  });
+
+  document.getElementById('formEmergencia').addEventListener('submit', function(e) {
+    e.preventDefault();
+    enviarAlertaConWhatsApp();
+  });
+
+  // Función para llamar (usando tel: como en proyectos de audio)
+  function llamarEquipo(equipo) {
+    const numeros = {
+      bomberos: 'tel:+542664024390', // Ejemplo de número
+      policia: 'tel:+542661234567',
+      hospitales: 'tel:+542664567890'
+    };
+    if (numeros[equipo]) {
+      window.open(numeros[equipo]);
+    } else {
+      alert('Número no disponible para este equipo.');
+    }
+  }
+
+  // Obtener número principal para un equipo (primer contacto) o null
+  function getPrimaryNumber(equipo) {
+    const lista = contactos[equipo];
+    if (!lista || lista.length === 0) return null;
+    return lista[0].telefono || null;
+  }
+
+  // Normaliza un número para usar en enlaces tel: o wa.me (quita todo lo que no sea dígito)
+  function normalizeDigits(number) {
+    if (!number) return '';
+    return number.toString().replace(/\D/g, '');
+  }
+
+  // Construye href para tel: si hay dígitos
+  function telHref(number) {
+    const d = normalizeDigits(number);
+    return d ? `tel:${d}` : null;
+  }
+
+  // Construye enlace wa.me si hay dígitos
+  function waHref(number, text) {
+    const d = normalizeDigits(number);
+    if (!d) return null;
+    const prefix = d.startsWith('0') ? d.replace(/^0+/, '') : d; // quitar ceros iniciales
+    return `https://wa.me/${prefix}?text=${encodeURIComponent(text || '')}`;
+  }
+
+  // Muestra un modal sencillo con opciones de emergencia
+  function showEmergencyModal() {
+    // evitar múltiples overlays
+    if (document.getElementById('emergencyOverlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'emergencyOverlay';
+    overlay.className = 'modal-overlay';
+
+    const content = document.createElement('div');
+    content.className = 'modal-content';
+
+    const title = document.createElement('h3');
+    title.textContent = 'Emergencia General';
+    title.style.marginTop = '0';
+    title.style.color = '#fff';
+
+    const info = document.createElement('p');
+    info.className = 'small-note';
+    info.textContent = 'Elige una acción. Si tu dispositivo no admite llamadas desde el navegador, copia el número o usa WhatsApp.';
+
+    const btns = document.createElement('div');
+    btns.style.display = 'flex';
+    btns.style.flexDirection = 'column';
+    btns.style.gap = '0.5rem';
+
+    // Llamar 911
+    const btn911 = document.createElement('button');
+    btn911.className = 'utility-btn emergency-button';
+    btn911.textContent = 'Llamar 911';
+    btn911.onclick = () => {
+      const href = telHref('911') || 'tel:911';
+      window.open(href);
+    };
+
+    // Llamar Bomberos
+    const btnBomberos = document.createElement('button');
+    btnBomberos.className = 'utility-btn';
+    btnBomberos.textContent = 'Llamar Bomberos';
+    btnBomberos.onclick = () => {
+      const num = getPrimaryNumber('bomberos');
+      const href = telHref(num);
+      if (href) window.open(href);
+      else alert('No hay número de bomberos configurado. Agrégalo en "Gestionar Contactos".');
+    };
+
+    // Llamar Policía
+    const btnPolicia = document.createElement('button');
+    btnPolicia.className = 'utility-btn';
+    btnPolicia.textContent = 'Llamar Policía';
+    btnPolicia.onclick = () => {
+      const num = getPrimaryNumber('policia');
+      const href = telHref(num);
+      if (href) window.open(href);
+      else alert('No hay número de policía configurado. Agrégalo en "Gestionar Contactos".');
+    };
+
+    // Enviar WhatsApp a Bomberos
+    const btnWaBom = document.createElement('button');
+    btnWaBom.className = 'utility-btn';
+    btnWaBom.textContent = 'Enviar WhatsApp a Bomberos';
+    btnWaBom.onclick = () => {
+      const num = getPrimaryNumber('bomberos');
+      const mensaje = '🚨 Emergencia — necesito asistencia inmediata.';
+      if (num) enviarWhatsappConUbicacion(num, mensaje);
+      else alert('No hay número de bomberos configurado. Agrégalo en "Gestionar Contactos".');
+    };
+
+    // Enviar WhatsApp a Policía
+    const btnWaPol = document.createElement('button');
+    btnWaPol.className = 'utility-btn';
+    btnWaPol.textContent = 'Enviar WhatsApp a Policía';
+    btnWaPol.onclick = () => {
+      const num = getPrimaryNumber('policia');
+      const mensaje = '🚨 Emergencia — necesito asistencia inmediata.';
+      if (num) enviarWhatsappConUbicacion(num, mensaje);
+      else alert('No hay número de policía configurado. Agrégalo en "Gestionar Contactos".');
+    };
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'utility-btn';
+    closeBtn.textContent = 'Cerrar';
+    closeBtn.onclick = () => document.body.removeChild(overlay);
+
+    btns.appendChild(btn911);
+    btns.appendChild(btnBomberos);
+    btns.appendChild(btnPolicia);
+    btns.appendChild(btnWaBom);
+    btns.appendChild(btnWaPol);
+    btns.appendChild(closeBtn);
+
+    content.appendChild(title);
+    content.appendChild(info);
+    content.appendChild(btns);
+    overlay.appendChild(content);
+    document.body.appendChild(overlay);
+  }
+
+  // Reemplaza comportamiento antiguo por el modal
+  function emergenciaGeneral() {
+    showEmergencyModal();
+  }
+
+  // Conectar botón del footer al modal una vez cargado el DOM
+  document.addEventListener('DOMContentLoaded', () => {
+    const emergencyBtn = document.getElementById('emergencyBtn');
+    if (emergencyBtn) emergencyBtn.addEventListener('click', showEmergencyModal);
+  });
+
+  // Función para obtener ubicación (reutilizada de proyectos previos)
+  function obtenerUbicacion() {
+    const ubicacionInput = document.querySelector('#formEmergencia input[placeholder="Ubicación"]');
+    if (!ubicacionInput) return;
+    if (!navigator.geolocation) {
+      alert('Geolocalización no soportada por este navegador.');
+      return;
+    }
+    const original = ubicacionInput.value;
+    ubicacionInput.value = 'Obteniendo ubicación...';
+    getLocationWithTimeout(12000).then(res => {
+      if (res.ok) {
+        ubicacionInput.value = `https://www.google.com/maps?q=${res.latitude},${res.longitude}`;
+      } else {
+        ubicacionInput.value = original || '';
+        if (res.reason === 'permission_denied') alert('Permiso de ubicación denegado. Permite el acceso en el navegador y reintenta.');
+        else if (res.reason === 'timeout') alert('Tiempo de espera agotado al obtener ubicación. Intenta de nuevo.');
+        else alert('No se pudo obtener ubicación: ' + (res.message || res.reason));
+      }
+    });
+  }
+
+  // Agregar botón para obtener ubicación automáticamente
+  document.addEventListener('DOMContentLoaded', () => {
+    // Inicializar mapa aquí para asegurar que el DOM esté listo
+    const map = L.map('map').setView([-33.232, -66.257], 13); // Coordenadas aproximadas para Tilisarao
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    const form = document.getElementById('formEmergencia');
+    const ubicacionInput = form.querySelector('input[placeholder="Ubicación"]');
+    ubicacionInput.insertAdjacentHTML('afterend', '<button type="button" class="bg-gray-600 hover:bg-gray-700 text-white px-2 py-1 mt-1 rounded text-sm" onclick="obtenerUbicacion()">Obtener Ubicación</button>');
+  });
+</script>
+</body>
+</html>
